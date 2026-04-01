@@ -1,0 +1,35 @@
+name: Sync From Upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  sync:
+    name: Sync main and tags
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync from upstream repository
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/the-momentum/open-wearables.git
+          git fetch origin main --tags
+          git fetch upstream main --tags
+
+          git checkout -B main origin/main
+          git merge --no-ff --no-edit upstream/main
+
+          git push origin main
+          git push origin --tags
