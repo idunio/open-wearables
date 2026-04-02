@@ -1,0 +1,36 @@
+name: Release and Build Frontend Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version tag to use for the frontend image
+        required: true
+        type: string
+      vite_api_url:
+        description: API URL passed to frontend build as VITE_API_URL
+        required: true
+        type: string
+        default: http://localhost:8000
+
+jobs:
+  build_frontend:
+    name: Build and Publish Frontend Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - name: Log in to DigitalOcean Container Registry
+        run: doctl registry login --expiry-seconds 1200
+      - name: Build frontend container image
+        run: |
+          docker build \
+            --build-arg VITE_API_URL=${{ inputs.vite_api_url }} \
+            -t ${{ secrets.REGISTRY_NAME }}/open-wearables-frontend:${{ inputs.version }} \
+            ./frontend
+      - name: Push frontend image to DigitalOcean Container Registry
+        run: docker push ${{ secrets.REGISTRY_NAME }}/open-wearables-frontend:${{ inputs.version }}
