@@ -1,4 +1,4 @@
-name: Release and Build Service Images
+name: Release and Build Backend Image
 
 on:
   workflow_dispatch:
@@ -39,24 +39,3 @@ jobs:
             ./backend
       - name: Push backend image to DigitalOcean Container Registry
         run: docker push ${{ secrets.REGISTRY_NAME }}/open-wearables-backend:${{ needs.get_tag.outputs.version }}
-
-  build_frontend:
-    name: Build and Publish Frontend Docker image
-    needs: get_tag
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install doctl
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      - name: Log in to DigitalOcean Container Registry
-        run: doctl registry login --expiry-seconds 1200
-      - name: Build frontend container image
-        run: |
-          docker build \
-            -t ${{ secrets.REGISTRY_NAME }}/open-wearables-frontend:${{ needs.get_tag.outputs.version }} \
-            ./frontend
-      - name: Push frontend image to DigitalOcean Container Registry
-        run: docker push ${{ secrets.REGISTRY_NAME }}/open-wearables-frontend:${{ needs.get_tag.outputs.version }}
