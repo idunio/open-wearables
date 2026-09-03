@@ -66,6 +66,136 @@ class TestSuuntoSleepNormalization:
         assert result["min_heart_rate_bpm"] == 52.0
         assert result["is_nap"] is False
 
+    def test_normalize_sleep_converts_spo2_fraction_to_percent(self, data_247: Suunto247Data) -> None:
+        raw = {"entryData": {"BedtimeStart": "2025-01-05T23:00:00.000+01:00", "MaxSpo2": 0.98}}
+
+        assert data_247.normalize_sleep(raw, uuid4())["max_spo2_percent"] == 98.0
+
+    def test_normalize_sleep_leaves_spo2_already_in_percent(self, data_247: Suunto247Data) -> None:
+        raw = {"entryData": {"BedtimeStart": "2025-01-05T23:00:00.000+01:00", "MaxSpo2": 98.0}}
+
+        assert data_247.normalize_sleep(raw, uuid4())["max_spo2_percent"] == 98.0
+
+
+class TestSuuntoSleepAwakeTime:
+    """Awake time comes from ``WakeAfterSleepOnsetDuration`` + ``WakeBeforeOffBedDuration``."""
+
+    def test_awake_excludes_onset_latency(self, data_247: Suunto247Data) -> None:
+        # Duration exceeds the stage total by the wake window plus the onset latency.
+        raw = {
+            "timestamp": "2025-01-05T23:00:00.000+01:00",
+            "entryData": {
+                "BedtimeStart": "2025-01-05T23:00:00.000+01:00",
+                "BedtimeEnd": "2025-01-06T07:00:00.000+01:00",
+                "Duration": 28800.0,
+                "DeepSleepDuration": 7200.0,
+                "LightSleepDuration": 14400.0,
+                "REMSleepDuration": 5400.0,
+                "WakeAfterSleepOnsetDuration": 1200.0,
+                "WakeBeforeOffBedDuration": 0.0,
+                "SleepOnsetLatencyDuration": 600.0,
+                "SleepQualityScore": 70,
+                "IsNap": False,
+                "SleepId": 1,
+            },
+        }
+
+        result = data_247.normalize_sleep(raw, uuid4())
+
+        assert result["stages"]["awake_seconds"] == 1200
+
+    def test_nap_payload_reports_no_awake_time(self, data_247: Suunto247Data) -> None:
+        """Suunto scores neither stages nor quality for a session it calls a nap.
+
+        It can later revise the same SleepId into a full night, so the nap normalizes
+        to the zero awake time it reports rather than to its whole Duration.
+        """
+        raw = {
+            "timestamp": "2025-01-05T23:00:00.000+01:00",
+            "entryData": {
+                "BedtimeStart": "2025-01-05T23:00:00.000+01:00",
+                "BedtimeEnd": "2025-01-06T00:00:00.000+01:00",
+                "Duration": 3600.0,
+                "DeepSleepDuration": 0.0,
+                "LightSleepDuration": 0.0,
+                "REMSleepDuration": 0.0,
+                "WakeAfterSleepOnsetDuration": 0.0,
+                "WakeBeforeOffBedDuration": 0.0,
+                "IsNap": True,
+                "SleepId": 2,
+            },
+        }
+
+        result = data_247.normalize_sleep(raw, uuid4())
+
+        assert result["stages"]["awake_seconds"] == 0
+        assert result["duration_seconds"] == 3600
+        assert result["is_nap"] is True
+        assert result["efficiency_percent"] is None
+
+    def test_awake_is_zero_when_stages_fill_the_whole_duration(self, data_247: Suunto247Data) -> None:
+        raw = {
+            "timestamp": "2025-01-05T23:00:00.000+01:00",
+            "entryData": {
+                "BedtimeStart": "2025-01-05T23:00:00.000+01:00",
+                "BedtimeEnd": "2025-01-06T07:00:00.000+01:00",
+                "Duration": 28800.0,
+                "DeepSleepDuration": 7200.0,
+                "LightSleepDuration": 14400.0,
+                "REMSleepDuration": 7200.0,
+                "WakeAfterSleepOnsetDuration": 0.0,
+                "WakeBeforeOffBedDuration": 0.0,
+                "SleepQualityScore": 90,
+                "IsNap": False,
+                "SleepId": 3,
+            },
+        }
+
+        result = data_247.normalize_sleep(raw, uuid4())
+
+        assert result["stages"]["awake_seconds"] == 0
+        assert result["efficiency_percent"] == 90
+
+    def test_awake_sums_both_reported_wake_windows(self, data_247: Suunto247Data) -> None:
+        raw = {
+            "timestamp": "2025-01-05T23:00:00.000+01:00",
+            "entryData": {
+                "BedtimeStart": "2025-01-05T23:00:00.000+01:00",
+                "BedtimeEnd": "2025-01-06T07:00:00.000+01:00",
+                "Duration": 28800.0,
+                "DeepSleepDuration": 7200.0,
+                "LightSleepDuration": 14400.0,
+                "REMSleepDuration": 5400.0,
+                "WakeAfterSleepOnsetDuration": 600.0,
+                "WakeBeforeOffBedDuration": 600.0,
+                "SleepQualityScore": 80,
+                "IsNap": False,
+                "SleepId": 4,
+            },
+        }
+
+        result = data_247.normalize_sleep(raw, uuid4())
+
+        assert result["stages"]["awake_seconds"] == 1200
+
+    def test_awake_defaults_to_zero_when_wake_fields_absent(self, data_247: Suunto247Data) -> None:
+        raw = {
+            "timestamp": "2025-01-05T23:00:00.000+01:00",
+            "entryData": {
+                "BedtimeStart": "2025-01-05T23:00:00.000+01:00",
+                "BedtimeEnd": "2025-01-06T07:00:00.000+01:00",
+                "Duration": 28800.0,
+                "DeepSleepDuration": 7200.0,
+                "LightSleepDuration": 14400.0,
+                "REMSleepDuration": 5400.0,
+                "SleepId": 5,
+            },
+        }
+
+        result = data_247.normalize_sleep(raw, uuid4())
+
+        assert result["stages"]["awake_seconds"] == 0
+
 
 class TestSuuntoSleepWindowFallback:
     """Suunto documents an explicit in-bed window (``BedtimeStart``/``BedtimeEnd``).
@@ -109,12 +239,12 @@ class TestSuuntoSleepWindowFallback:
         assert result["end_time"] is None
 
     def test_reconstructs_start_when_only_bedtime_end_present(self, data_247: Suunto247Data) -> None:
-        raw = {"entryData": {"BedtimeEnd": "2026-06-09T10:35:00.000+02:00", "Duration": 27120.0}}
+        raw = {"entryData": {"BedtimeEnd": "2025-01-06T07:00:00.000+01:00", "Duration": 28800.0}}
 
         result = data_247.normalize_sleep(raw, uuid4())
 
-        assert parse_iso_datetime(result["end_time"]) == parse_iso_datetime("2026-06-09T10:35:00.000+02:00")
-        assert parse_iso_datetime(result["start_time"]) == parse_iso_datetime("2026-06-09T03:03:00.000+02:00")
+        assert parse_iso_datetime(result["end_time"]) == parse_iso_datetime("2025-01-06T07:00:00.000+01:00")
+        assert parse_iso_datetime(result["start_time"]) == parse_iso_datetime("2025-01-05T23:00:00.000+01:00")
 
     def test_reconstructs_end_when_only_bedtime_start_present(self, data_247: Suunto247Data) -> None:
         raw = {
@@ -156,12 +286,12 @@ class TestSuuntoSaveSleepSkipSignal:
         # instant stays in the device's zone.
         normalized = {
             "id": uuid4(),
-            "start_time": "2026-06-09T03:03:00.000",
-            "end_time": "2026-06-09T10:35:00.000+02:00",
-            "duration_seconds": 27120,
+            "start_time": "2025-01-05T23:00:00.000",
+            "end_time": "2025-01-06T07:00:00.000+01:00",
+            "duration_seconds": 28800,
             "stages": {},
             "is_nap": True,
-            "suunto_sleep_id": 1780966980,
+            "suunto_sleep_id": 6,
             "efficiency_percent": None,
         }
 
@@ -170,11 +300,11 @@ class TestSuuntoSaveSleepSkipSignal:
 
         assert result is True
         record = event_record_service_mock.create_or_merge_sleep.call_args[0][2]
-        assert record.start_datetime == parse_iso_datetime("2026-06-09T03:03:00.000+02:00")
-        assert record.end_datetime == parse_iso_datetime("2026-06-09T10:35:00.000+02:00")
+        assert record.start_datetime == parse_iso_datetime("2025-01-05T23:00:00.000+01:00")
+        assert record.end_datetime == parse_iso_datetime("2025-01-06T07:00:00.000+01:00")
 
 
-class TestSuuntoRestingHeartRatePersistence:
+class TestSuuntoSleepSeriesPersistence:
     def test_emits_rhr_sample_for_non_nap_sleep_with_hr_min(
         self,
         data_247: Suunto247Data,
@@ -184,7 +314,7 @@ class TestSuuntoRestingHeartRatePersistence:
         db = MagicMock()
         recorded_at = datetime(2026, 5, 17, 9, 19, tzinfo=timezone.utc)
 
-        data_247._persist_resting_heart_rate(db, base_sleep["user_id"], base_sleep, recorded_at)
+        data_247._persist_sleep_series(db, base_sleep["user_id"], base_sleep, recorded_at)
 
         timeseries_service_mock.bulk_create_samples.assert_called_once()
         samples = timeseries_service_mock.bulk_create_samples.call_args[0][1]
@@ -196,7 +326,35 @@ class TestSuuntoRestingHeartRatePersistence:
         assert sample.user_id == base_sleep["user_id"]
         assert sample.source == "suunto"
         assert sample.external_id == "12345"
+        assert sample.is_daily_total is True
         db.commit.assert_called_once()
+
+    def test_emits_hrv_and_spo2_alongside_rhr(
+        self,
+        data_247: Suunto247Data,
+        base_sleep: dict,
+        timeseries_service_mock: MagicMock,
+    ) -> None:
+        base_sleep["avg_hrv_ms"] = 49.0
+        base_sleep["max_spo2_percent"] = 98.0
+
+        data_247._persist_sleep_series(
+            MagicMock(),
+            base_sleep["user_id"],
+            base_sleep,
+            datetime(2025, 1, 6, 7, 0, tzinfo=timezone.utc),
+        )
+
+        samples = timeseries_service_mock.bulk_create_samples.call_args[0][1]
+        by_type = {s.series_type: s for s in samples}
+        assert by_type.keys() == {
+            SeriesType.resting_heart_rate,
+            SeriesType.heart_rate_variability_rmssd,
+            SeriesType.oxygen_saturation,
+        }
+        assert by_type[SeriesType.heart_rate_variability_rmssd].value == Decimal("49.0")
+        assert by_type[SeriesType.oxygen_saturation].value == Decimal("98.0")
+        assert all(s.is_daily_total is True for s in samples)
 
     def test_skips_nap_sessions(
         self,
@@ -206,7 +364,7 @@ class TestSuuntoRestingHeartRatePersistence:
     ) -> None:
         base_sleep["is_nap"] = True
 
-        data_247._persist_resting_heart_rate(
+        data_247._persist_sleep_series(
             MagicMock(),
             base_sleep["user_id"],
             base_sleep,
@@ -223,7 +381,7 @@ class TestSuuntoRestingHeartRatePersistence:
     ) -> None:
         base_sleep["min_heart_rate_bpm"] = None
 
-        data_247._persist_resting_heart_rate(
+        data_247._persist_sleep_series(
             MagicMock(),
             base_sleep["user_id"],
             base_sleep,
@@ -241,7 +399,7 @@ class TestSuuntoRestingHeartRatePersistence:
         timeseries_service_mock.bulk_create_samples.side_effect = RuntimeError("db down")
         db = MagicMock()
 
-        data_247._persist_resting_heart_rate(
+        data_247._persist_sleep_series(
             db,
             base_sleep["user_id"],
             base_sleep,
