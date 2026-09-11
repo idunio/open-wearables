@@ -787,25 +787,15 @@ export interface BackfillTypeSummary {
 }
 
 export interface GarminBackfillStatus {
-  overall_status:
-    | 'pending'
-    | 'in_progress'
-    | 'complete'
-    | 'cancelled'
-    | 'retry_in_progress'
-    | 'permanently_failed';
+  overall_status: 'pending' | 'in_progress' | 'complete' | 'retry_in_progress';
   current_window: number;
   total_windows: number;
   windows: Record<string, BackfillWindowStatus>;
   summary: Record<string, BackfillTypeSummary>;
   in_progress: boolean;
-  // Phase 3: retry and GC state
   retry_phase: boolean;
   retry_type: string | null;
   retry_window: number | null;
-  attempt_count: number;
-  max_attempts: number;
-  permanently_failed: boolean;
 }
 
 export interface WebhookEventType {
